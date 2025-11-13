@@ -17,8 +17,9 @@
 (define-constant ERR_NO_TOKEN_CONTRACT_FOR_SIP010_TRANSFER (err u506))
 (define-constant ERR_INVALID_TXN_ID (err u507))
 (define-constant ERR_INVALID_AMOUNT (err u508))
-(define-constant ERR_MIN_THRESHOLD_NOT_MET (err 509))
-(define-constant ERR_NOT_INITIALIZED (err u510))
+(define-constant ERR_MIN_THRESHOLD_NOT_MET (err u509))
+(define-constant ERR_INVALID_TOKEN_CONTACT (err u510))
+(define-constant ERR_NOT_INITIALIZED (err u511))
 (define-constant ERR_UNEXPECTED (err u999))
 
 ;; Storage Vars 
@@ -54,7 +55,18 @@
         (new-signers (list 100 principal))
         (min-threshold uint)
     )
-    (ok true)
+    (begin
+        (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_OWNER_ONLY)
+        (asserts! (is-eq (var-get initialized) false) ERR_ALREADY_INITIALIZED)
+        (asserts! (<= (len new-signers) MAX_SIGNERS) ERR_TOO_MANY_SIGNERS)
+        (asserts! (>= min-threshold MIN_SIGNATURES_REQUIRED)
+            ERR_MIN_THRESHOLD_NOT_MET
+        )
+        (var-set signers new-signers)
+        (var-set threshold min-threshold)
+        (var-set initialized true)
+        (ok true)
+    )
 )
 
 ;; Submit a new transaction to the multisig contract
