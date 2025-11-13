@@ -11,7 +11,7 @@
 (define-constant ERR_OWNER_ONLY (err u500))
 (define-constant ERR_ALREADY_INITIALIZED (err u501))
 (define-constant ERR_TOO_MANY_SIGNERS (err u502))
-(define-constant ERR_TOO_FEW_SIGNATURES_REQUIRED u503)
+(define-constant ERR_TOO_FEW_SIGNATURES_REQUIRED (err u503))
 (define-constant ERR_NOT_A_SIGNER (err u504))
 (define-constant ERR_INVALID_TX_TYPE (err u505))
 (define-constant ERR_NO_TOKEN_CONTRACT_FOR_SIP010_TRANSFER (err u506))
@@ -44,7 +44,7 @@
         id: uint,
         member: principal,
     }
-    { has-signer: bool }
+    { has-signed: bool }
 )
 
 ;; Public functions 
@@ -82,7 +82,43 @@
         (recipient principal)
         (token (optional principal))
     )
-    (ok true)
+    (let ((id (var-get txn-id)))
+        ;; Check if the contract is initialized
+        (asserts! (is-eq (var-get initialized) true) ERR_NOT_INITIALIZED)
+        ;; Check if the sender is a signer
+        (asserts! (is-some (index-of? (var-get signers) tx-sender))
+            ERR_NOT_A_SIGNER
+        )
+        ;; Check if the amount is greater than 0
+        (asserts! (> amount u0) ERR_INVALID_AMOUNT)
+        ;; Check if the type is valid (0 for STX transfer, 1 for SIP-010 transfer)
+        (asserts! (or (is-eq type u0) (is-eq type u1)) ERR_INVALID_TX_TYPE)
+        ;; Check if the token is provided for SIP-010 transfers
+        (if (is-eq type u1)
+            (asserts! (is-some token) ERR_NO_TOKEN_CONTRACT_FOR_SIP010_TRANSFER)
+            (asserts! true ERR_UNEXPECTED)
+        )
+        ;; Update the transactions map with the new transaction
+        (map-set transactions { id: id } {
+            type: type,
+            amount: amount,
+            recipient: recipient,
+            token: token,
+            executed: false,
+        })
+        ;; Increment the transaction ID
+        (var-set txn-id (+ id u1))
+        ;; Print the transaction details
+        (print {
+            action: "submit txn",
+            type: type,
+            amount: amount,
+            recipient: recipient,
+            token: token,
+            submitter: tx-sender,
+        })
+        (ok id)
+    )
 )
 
 ;; Execute a SIP-010 transfer transaction
