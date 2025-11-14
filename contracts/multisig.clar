@@ -146,7 +146,41 @@
         (id uint)
         (signatures (list 100 (buff 65)))
     )
-    (ok true)
+    (let (
+            (transaction (unwrap-panic (map-get? transactions { id: id })))
+            (transaction-hash (hash-txn id))
+            (total-unique-valid-signatures (get count
+                (fold count-valid-unique-signature signatures {
+                    id: id,
+                    hash: transaction-hash,
+                    count: u0,
+                })
+            ))
+            (txn-type (get type transaction))
+            (amount (get amount transaction))
+            (recipient (get recipient transaction))
+            (token-principal (get token transaction))
+        )
+        (asserts! (is-some (index-of? (var-get signers) tx-sender))
+            ERR_NOT_A_SIGNER
+        )
+        (asserts! (>= (len signatures) (var-get threshold))
+            ERR_MIN_THRESHOLD_NOT_MET
+        )
+        (asserts! (>= total-unique-valid-signatures (var-get threshold))
+            ERR_MIN_THRESHOLD_NOT_MET
+        )
+        (asserts! (<= id (var-get txn-id)) ERR_INVALID_TXN_ID)
+        (asserts! (is-eq txn-type u0) ERR_INVALID_TX_TYPE)
+        (try! (as-contract (stx-transfer? amount tx-sender recipient)))
+        (map-set transactions { id: id } (merge transaction { executed: true }))
+        (print {
+            action: "execute-stx-transfer-txn",
+            id: id,
+            signatures: signatures,
+        })
+        (ok true)
+    )
 )
 
 ;; Read only functions
@@ -201,7 +235,7 @@
             (count (get count accumulator))
             (signer (extract-signer hash signature))
         )
-        (if ;; If we got a signer and the signer isn't marked as already having signed this traction
+        (if ;; If we got a signer and the signer isn't marked as already having signed this transaction
             (and (is-ok signer) (is-none (map-get? txn-signers {
                 id: id,
                 member: (unwrap-panic signer),
