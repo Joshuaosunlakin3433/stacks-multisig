@@ -170,13 +170,12 @@
         (msg-hash (buff 32))
         (signature (buff 65))
     )
-    (let 
-    (
-        ;;Recover the public key from the signature
-        (recovered-pk (unwrap! (secp256k1-recover? msg-hash signature) ERR_NOT_A_SIGNER))
-        ;;CONVERT THE PUBLIC KEY TO A PRINCIPAL
-        (signer (unwrap! (principal-of? recovered-pk) ERR_NOT_A_SIGNER))
-    )
+    (let (
+            ;; Recover the public key from the signature
+            (recovered-pk (unwrap! (secp256k1-recover? msg-hash signature) ERR_NOT_A_SIGNER))
+            ;; CONVERT THE PUBLIC KEY TO A PRINCIPAL
+            (signer (unwrap! (principal-of? recovered-pk) ERR_NOT_A_SIGNER))
+        )
         ;; check if the signer is a signer
         (asserts! (is-some (index-of? (var-get signers) signer)) ERR_NOT_A_SIGNER)
         (ok signer)
@@ -196,5 +195,27 @@
             count: uint,
         })
     )
-    (ok true)
+    (let (
+            (id (get id accumulator))
+            (hash (get hash accumulator))
+            (count (get count accumulator))
+            (signer (extract-signer hash signature))
+        )
+        (if ;; If we got a signer and the signer isn't marked as already having signed this traction
+            (and (is-ok signer) (is-none (map-get? txn-signers {
+                id: id,
+                member: (unwrap-panic signer),
+            })))
+            (begin
+                (map-set txn-signers {
+                    id: id,
+                    member: (unwrap-panic signer),
+                } { has-signed: true }
+                )
+                (merge accumulator { count: (+ count u1) })
+            )
+            ;; otherwise return the accumulator unchanged
+            accumulator
+        )
+    )
 )
