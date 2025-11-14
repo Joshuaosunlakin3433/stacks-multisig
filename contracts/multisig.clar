@@ -154,7 +154,14 @@
 ;; Returns the hash of the transaction
 
 (define-read-only (hash-txn (id uint))
-    (ok true)
+    (let (
+            ;; load the txn from the txns map
+            (transaction (unwrap-panic (map-get? transactions { id: id })))
+            ;; Convert the transaction to a raw buffer
+            (msg (unwrap-panic (to-consensus-buff? transaction)))
+        )
+        (sha256 msg)
+    )
 )
 
 ;; Extract the signer from a signature
@@ -163,7 +170,17 @@
         (msg-hash (buff 32))
         (signature (buff 65))
     )
-    (ok true)
+    (let 
+    (
+        ;;Recover the public key from the signature
+        (recovered-pk (unwrap! (secp256k1-recover? msg-hash signature) ERR_NOT_A_SIGNER))
+        ;;CONVERT THE PUBLIC KEY TO A PRINCIPAL
+        (signer (unwrap! (principal-of? recovered-pk) ERR_NOT_A_SIGNER))
+    )
+        ;; check if the signer is a signer
+        (asserts! (is-some (index-of? (var-get signers) signer)) ERR_NOT_A_SIGNER)
+        (ok signer)
+    )
 )
 
 ;; Private Functions
