@@ -132,7 +132,45 @@
         (token <ft-trait>)
         (signatures (list 100 (buff 65)))
     )
-    (ok true)
+    (let (
+            (transaction (unwrap-panic (map-get? transactions { id: id })))
+            (transaction-hash (hash-txn id))
+            (total-unique-valid-signatures (get count
+                (fold count-valid-unique-signature signatures {
+                    id: id,
+                    hash: transaction-hash,
+                    count: u0,
+                })
+            ))
+            (txn-type (get type transaction))
+            (amount (get amount transaction))
+            (recipient (get recipient transaction))
+            (token-principal (get token transaction))
+        )
+        (asserts! (is-some (index-of? (var-get signers) tx-sender))
+            ERR_NOT_A_SIGNER
+        )
+        (asserts! (>= (len signatures) (var-get threshold))
+            ERR_MIN_THRESHOLD_NOT_MET
+        )
+        (asserts! (>= total-unique-valid-signatures (var-get threshold))
+            ERR_MIN_THRESHOLD_NOT_MET
+        )
+        (asserts! (<= id (var-get txn-id)) ERR_INVALID_TXN_ID)
+        (asserts! (is-eq txn-type u1) ERR_INVALID_TX_TYPE)
+        (asserts! (is-some token-principal) ERR_INVALID_TX_TYPE)
+        (asserts! (is-eq (unwrap-panic token-principal) (contract-of token))
+            ERR_INVALID_TOKEN_CONTACT
+        )
+        (try! (as-contract (contract-call? token transfer amount tx-sender recipient none)))
+        (map-set transactions { id: id } (merge transaction { executed: true }))
+        (print {
+            action: "execute-token-transfer",
+            id: id,
+            signatures: signatures,
+        })
+        (ok true)
+    )
 )
 
 ;; Execute an STX transfer tranaction
