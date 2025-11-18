@@ -220,7 +220,7 @@
         (ok true)
     )
 )
-
+ 
 ;; Read only functions
 ;; Hash a transaction
 ;; Returns the hash of the transaction
