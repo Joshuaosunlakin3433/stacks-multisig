@@ -84,4 +84,93 @@ describe("Multisig Tests", () => {
     );
     expect(initializeResult.result).toStrictEqual(Cl.error(Cl.uint(500)));
   });
+
+  it("does not allow initializing the multisig if it is already initialized", () => {
+    const initializeResult = simnet.callPublicFn(
+      "multisig",
+      "initialize",
+      [
+        Cl.list([
+          Cl.principal(alice),
+          Cl.principal(bob),
+          Cl.principal(charlie),
+        ]),
+        Cl.uint(2),
+      ],
+      deployer
+    );
+    expect(initializeResult.result).toStrictEqual(Cl.ok(Cl.bool(true)));
+
+    const initializedResultTwo = simnet.callPublicFn(
+      "multisig",
+      "initialize",
+      [
+        Cl.list([
+          Cl.principal(alice),
+          Cl.principal(bob),
+          Cl.principal(charlie),
+        ]),
+        Cl.uint(2),
+      ],
+      deployer
+    );
+
+    expect(initializedResultTwo.result).toStrictEqual(Cl.error(Cl.uint(509)));
+  });
+
+  it("allows any of the signers to submit a transaction", () => {
+    const initializeResult = simnet.callPublicFn(
+      "multisig",
+      "initialize",
+      [
+        Cl.list([
+          Cl.principal(alice),
+          Cl.principal(bob),
+          Cl.principal(charlie),
+        ]),
+        Cl.uint(2),
+      ],
+      deployer
+    );
+
+    expect(initializeResult.result).toStrictEqual(Cl.ok(Cl.bool(true)));
+
+    for (const signer of [alice, bob, charlie]) {
+      const expectedTxnId = simnet.getDataVar("multisig", "txn-id");
+      const submitResult = simnet.callPublicFn(
+        "multisig",
+        "submit-txn",
+        [Cl.uint(0), Cl.uint(100), Cl.principal(signer), Cl.none()],
+        signer
+      );
+      expect(submitResult.result).toStrictEqual(Cl.ok(expectedTxnId));
+    }
+  });
+
+  it("deos not allow a non-signer to sign a transaction", () => {
+    const initializeResult = simnet.callPublicFn(
+      "multisig",
+      "initialize",
+      [
+        Cl.list([
+          Cl.principal(alice),
+          Cl.principal(bob),
+          Cl.principal(charlie),
+        ]),
+        Cl.uint(2),
+      ],
+      deployer
+    );
+
+    expect(initializeResult.result).toStrictEqual(Cl.ok(Cl.bool(true)));
+
+    const submitResult = simnet.callPublicFn(
+      "multisig",
+      "submit-txn",
+      [Cl.uint(0), Cl.uint(100), Cl.principal(alice), Cl.none()],
+      deployer
+    );
+
+    expect(submitResult.result).toStrictEqual(Cl.error(Cl.uint(504)));
+  });
 });
