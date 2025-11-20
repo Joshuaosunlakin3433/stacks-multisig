@@ -2,9 +2,9 @@ import {
   Cl,
   getAddressFromPrivateKey,
   makeRandomPrivKey,
+  signMessageHashRsv,
 } from "@stacks/transactions";
-import { it } from "node:test";
-import { describe, beforeEach, expect } from "vitest";
+import { describe, beforeEach, expect, assert, it } from "vitest";
 
 const accounts = simnet.getAccounts(); // initialize simnet for testing
 const deployer = accounts.get("deployer")!; // deployer for initializing multisig
@@ -50,6 +50,7 @@ describe("Multisig Tests", () => {
           Cl.principal(bob),
           Cl.principal(charlie),
         ]),
+        Cl.uint(2),
       ],
       deployer
     );
@@ -115,7 +116,24 @@ describe("Multisig Tests", () => {
       deployer
     );
 
-    expect(initializedResultTwo.result).toStrictEqual(Cl.error(Cl.uint(509)));
+    expect(initializedResultTwo.result).toStrictEqual(Cl.error(Cl.uint(501)));
+  });
+
+  it("does not allow initializing the multisig if the threshold is too low", () => {
+    const initializeResult = simnet.callPublicFn(
+      "multisig",
+      "initialize",
+      [
+        Cl.list([
+          Cl.principal(alice),
+          Cl.principal(bob),
+          Cl.principal(charlie),
+        ]),
+        Cl.uint(0),
+      ],
+      deployer
+    );
+    expect(initializeResult.result).toStrictEqual(Cl.error(Cl.uint(509)));
   });
 
   it("allows any of the signers to submit a transaction", () => {
@@ -172,5 +190,161 @@ describe("Multisig Tests", () => {
     );
 
     expect(submitResult.result).toStrictEqual(Cl.error(Cl.uint(504)));
+  });
+
+  it("can submit a STX transfer transaction", () => {
+    // Initialize the multisig
+    const initializeResult = simnet.callPublicFn(
+      "multisig",
+      "initialize",
+      [
+        Cl.list([
+          Cl.principal(alice),
+          Cl.principal(bob),
+          Cl.principal(charlie),
+        ]),
+        Cl.uint(2),
+      ],
+      deployer
+    );
+    expect(initializeResult.result).toStrictEqual(Cl.ok(Cl.bool(true)));
+
+    // Submit a transaction
+    const submitResult = simnet.callPublicFn(
+      "multisig",
+      "submit-txn",
+      [Cl.uint(0), Cl.uint(100), Cl.principal(alice), Cl.none()],
+      alice
+    );
+    expect(submitResult.result).toStrictEqual(Cl.ok(Cl.uint(0)));
+
+    // Send money to the multisig so it has STX tokens to transfer later
+    // when the txn is executed
+    const transferResult = simnet.transferSTX(
+      100,
+      multisig.value.toString(),
+      alice
+    );
+    expect(transferResult.result).toStrictEqual(Cl.ok(Cl.bool(true)));
+
+    // Hash the transaction
+    const txnHash = simnet.callReadOnlyFn(
+      "multisig",
+      "hash-txn",
+      [Cl.uint(0)],
+      deployer
+    );
+    assert(txnHash.result.type === "buffer");
+
+    // Have each signer sign the transaction
+    const aliceSignature = signMessageHashRsv({
+      messageHash: txnHash.result.value,
+      privateKey: alicePrivateKey,
+    });
+    const bobSignature = signMessageHashRsv({
+      messageHash: txnHash.result.value,
+      privateKey: bobPrivateKey,
+    });
+
+    // Execute the transaction
+    const executeResult = simnet.callPublicFn(
+      "multisig",
+      "execute-stx-transfer-txn",
+      [
+        Cl.uint(0),
+        Cl.list([
+          Cl.bufferFromHex(aliceSignature),
+          Cl.bufferFromHex(bobSignature),
+        ]),
+      ],
+      alice
+    );
+    expect(executeResult.result).toStrictEqual(Cl.ok(Cl.bool(true)));
+    expect(executeResult.events.length).toEqual(2); // one stx_transfer and one print
+  });
+
+  //TESTING - SIP010 TRANSFERS
+  it("can submit a SIP-010 transfer transaction", () => {
+    const initializeResult = simnet.callPublicFn(
+      "multisig",
+      "initialize",
+      [
+        Cl.list([
+          Cl.principal(alice),
+          Cl.principal(bob),
+          Cl.principal(charlie),
+        ]),
+        Cl.uint(2),
+      ],
+      deployer
+    );
+    expect(initializeResult.result).toStrictEqual(Cl.ok(Cl.bool(true)));
+
+    const submitResult = simnet.callPublicFn(
+      "multisig",
+      "submit-txn",
+      [Cl.uint(1), Cl.uint(100), Cl.principal(alice), Cl.some(token)],
+      alice
+    );
+
+    expect(submitResult.result).toStrictEqual(Cl.ok(Cl.uint(0)));
+
+    //send some token to the multisig
+    const sendResult = simnet.callPublicFn(
+      "mock-token",
+      "transfer",
+      [Cl.uint(100), Cl.principal(alice), multisig, Cl.none()],
+      alice
+    );
+    expect(sendResult.result).toStrictEqual(Cl.ok(Cl.bool(true)));
+
+    const balance = simnet.callReadOnlyFn(
+      "mock-token",
+      "get-balance",
+      [multisig],
+      deployer
+    );
+    expect(balance.result).toStrictEqual(Cl.ok(Cl.uint(100)));
+
+    const txnHash = simnet.callReadOnlyFn(
+      "multisig",
+      "hash-txn",
+      [Cl.uint(0)],
+      deployer
+    );
+    assert(txnHash.result.type === "buffer");
+
+    const aliceSignature = signMessageHashRsv({
+      messageHash: txnHash.result.value,
+      privateKey: alicePrivateKey,
+    });
+    const bobSignature = signMessageHashRsv({
+      messageHash: txnHash.result.value,
+      privateKey: bobPrivateKey,
+    });
+
+    const executeResult = simnet.callPublicFn(
+      "multisig",
+      "execute-token-transfer-txn",
+      [
+        Cl.uint(0),
+        token,
+        Cl.list([
+          Cl.bufferFromHex(aliceSignature),
+          Cl.bufferFromHex(bobSignature),
+        ]),
+      ],
+      alice
+    );
+    expect(executeResult.result).toStrictEqual(Cl.ok(Cl.bool(true)));
+    expect(executeResult.events.length).toEqual(2); // one ft_transfer and one print
+
+    const newBalance = simnet.callReadOnlyFn(
+      "mock-token",
+      "get-balance",
+      [multisig],
+      deployer
+    );
+    expect(newBalance.result).toStrictEqual(Cl.ok(Cl.uint(0)));
   });
 });
